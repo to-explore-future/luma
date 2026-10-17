@@ -12,10 +12,10 @@ macOS 菜单栏亮度控制。**它只为一件事存在：睡一觉醒来，亮
 
 **这个项目是 AI 写的，不是人写的。**
 
-- 代码、打包脚本、图标、这份 README：由 AI（DeepSeek Harness 里的编程代理）生成；
+- 代码、打包脚本、图标、这份 README：由 [**DeepSeek Harness**](https://github.com/deepseek-ai/deepseek-harness)（简称 DSH）里的 AI 编程代理生成；
 - 人负责的部分：提出需求、描述现象、验证结果、拍板取舍。
 
-从「那就自己写一个」到能用的版本，核心代码是 AI 几分钟内写出来的。真正耗时的是排查两个系统层面的坑：macOS 26（Tahoe）把第三方状态栏项交给 ControlCenter、图标会被丢到屏幕外；以及三块屏各自的调光链路（DisplayServices / DDC / gamma）到底哪条真正生效。
+从「那就自己写一个」到能用的版本，核心代码是 AI 几分钟内写出来的（用的是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)）。真正耗时的是排查两个系统层面的坑：macOS 26（Tahoe）把第三方状态栏项交给 ControlCenter、图标会被丢到屏幕外；以及三块屏各自的调光链路（DisplayServices / DDC / gamma）到底哪条真正生效。
 
 ## 为什么 MonitorControl 会「醒来失效」
 
