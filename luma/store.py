@@ -30,11 +30,25 @@ class Store:
 
     # ---- 读写文件 -----------------------------------------------------------
     def load(self):
+        """读状态文件。
+
+        读失败（文件正在被替换、临时不可读）时**保留内存里的数据**，
+        绝不能当成"空状态"——否则下一次刷新会把当前亮度当成记录值写回去，
+        用户的设置就凭空丢了。
+        """
         with self._lock:
             try:
-                raw = json.loads(self.path.read_text("utf-8"))
-            except (OSError, ValueError):
-                raw = {}
+                text = self.path.read_text("utf-8")
+            except FileNotFoundError:
+                text = None          # 首次运行，保持默认
+            except OSError:
+                return               # 读取失败：保留现状
+            if text is None:
+                return
+            try:
+                raw = json.loads(text)
+            except ValueError:
+                return               # 坏文件：保留现状
             if isinstance(raw, dict):
                 displays = raw.get("displays")
                 settings = raw.get("settings")

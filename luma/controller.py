@@ -74,6 +74,10 @@ class Controller:
                     self._do_restore(*task[1:])
                 elif kind == "refresh":
                     self._do_refresh(*task[1:])
+                elif kind == "reload":
+                    self.store.load()
+                    self._do_refresh()
+                    self._apply_stored()
             except Exception as exc:  # 不让后台线程死掉
                 log(f"任务失败 {task[:1]}: {exc!r}")
             finally:
@@ -171,6 +175,10 @@ class Controller:
             if d.asleep or not cg.is_active(d.display_id):
                 all_ok = False
                 continue
+            current = d.read()
+            if current is not None and abs(current - stored) < 0.01:
+                d.value = stored
+                continue
             ok = d.write(stored)
             if not ok and d.backend == disp.NATIVE:
                 d.backend = disp.GAMMA
@@ -230,8 +238,8 @@ class Controller:
         if mtime == self._last_state_mtime:
             return
         self._last_state_mtime = mtime
-        self.store.load()
-        self._apply_stored()
+        # 放到后台队列：主线程只做一次 stat，避免写亮度卡住 UI 和定时器
+        self._submit("reload")
 
     # ---- 自检（可选） -------------------------------------------------------
     def watchdog_check(self):
@@ -254,10 +262,18 @@ class Controller:
             self._notify()
 
     # ---- 落盘 / 通知 UI -----------------------------------------------------
+    def _save_marked(self):
+        """保存，并把 mtime 记下来——否则轮询会把自己刚写的值当成"外部修改"再应用一遍。"""
+        self.store.save()
+        try:
+            self._last_state_mtime = STATE_PATH.stat().st_mtime_ns
+        except OSError:
+            pass
+
     def _schedule_save(self):
         if self._save_timer is not None:
             self._save_timer.cancel()
-        self._save_timer = threading.Timer(0.4, self.store.save)
+        self._save_timer = threading.Timer(0.4, self._save_marked)
         self._save_timer.daemon = True
         self._save_timer.start()
 
@@ -265,7 +281,7 @@ class Controller:
         if self._save_timer is not None:
             self._save_timer.cancel()
             self._save_timer = None
-        self.store.save()
+        self._save_marked()
 
     def _notify(self):
         if not self.on_change:

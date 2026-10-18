@@ -1,5 +1,6 @@
 """显示器模型：枚举、命名、稳定标识、控制方式选择。"""
 
+import time
 from dataclasses import dataclass, field
 
 from . import cg
@@ -43,9 +44,14 @@ class Display:
             ok = cg.native_set(self.display_id, value)
             if ok:
                 # 有些外接屏系统说能改、实际改不动，用读回兜底判断。
+                # 但读回有延迟，立刻读会读到旧值，所以多等一会儿再判一次，
+                # 否则会把正常的屏误判成"改不动"而错误地切到软件调光。
                 back = cg.native_get(self.display_id)
                 if back is not None and abs(back - value) > 0.05:
-                    return False
+                    time.sleep(0.05)
+                    back = cg.native_get(self.display_id)
+                    if back is not None and abs(back - value) > 0.05:
+                        return False
             return ok
         return cg.gamma_set(self.display_id, value)
 
@@ -110,6 +116,12 @@ def enumerate_displays(override=None, override_map=None):
         used_keys[base_key] = used_keys.get(base_key, 0) + 1
         key = base_key if used_keys[base_key] == 1 else f"{base_key}#{used_keys[base_key]}"
 
+        maker = _maker_name(v)
+        # EDID 厂商码解不出来 = 不是真显示器（比如屏幕共享/虚拟屏），
+        # 对它们写 gamma 可能直接卡住，直接跳过。
+        if not builtin and not maker:
+            continue
+
         name = names.get(display_id)
         if not name:
             name = "内建显示器" if builtin else f"外接显示器 {v:04x}:{m:04x}"
@@ -128,7 +140,7 @@ def enumerate_displays(override=None, override_map=None):
             asleep=cg.is_asleep(display_id),
             main=cg.is_main(display_id),
             key=key,
-            maker=_maker_name(v),
+            maker=maker,
         )
         current = d.read()
         if current is not None:

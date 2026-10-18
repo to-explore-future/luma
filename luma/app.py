@@ -76,6 +76,7 @@ class AppDelegate(NSObject):
         self.rows = {}
         self.show_on_launch = True
         self.with_status_item = True
+        self._slider_touch = {}
         return self
 
     # ---- 启动 ---------------------------------------------------------------
@@ -340,9 +341,13 @@ class AppDelegate(NSObject):
             else:
                 self.rows = {}
             return
+        now = time.time()
         for d in displays:
             row = self.rows.get(d.key)
             if not row:
+                continue
+            # 用户刚动过这条滑块就别覆盖：否则轮询/应用回写会把滑块拽回去
+            if now - self._slider_touch.get(d.key, 0.0) < 1.5:
                 continue
             slider, pct = row
             try:
@@ -357,6 +362,7 @@ class AppDelegate(NSObject):
     def sliderChanged_(self, sender):
         key = sender.identifier()
         value = sender.doubleValue()
+        self._slider_touch[key] = time.time()
         row = self.rows.get(key)
         if row:
             row[1].setStringValue_(f"{round(value * 100)}%")

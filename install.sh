@@ -21,9 +21,16 @@ fi
 
 ./build.sh
 
-# 停掉旧实例，避免新旧两份同时抢亮度
+# 先让 launchd 停手，否则它会在我们 rm/cp 的中途把半截 App 拉起来
+LABEL="com.tcxt.luma"
+WAS_LOADED=0
+if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
+  WAS_LOADED=1
+  launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
+fi
 pkill -f -- "-m luma" 2>/dev/null || true
 pkill -f "Luma.app/Contents/MacOS/Luma" 2>/dev/null || true
+sleep 1
 
 rm -rf "$DEST" "$HOME/Applications/Luma.app"
 cp -R dist/Luma.app "$DEST"
@@ -36,7 +43,7 @@ if [ "$WITH_CLI" = "1" ]; then
   echo "已创建命令：$BIN/luma"
 fi
 
-if [ "$WITH_LOGIN" = "1" ]; then
+if [ "$WITH_LOGIN" = "1" ] || [ "$WAS_LOADED" = "1" ]; then
   "$DEST/Contents/MacOS/Luma" login on
 fi
 
