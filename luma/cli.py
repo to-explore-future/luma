@@ -173,6 +173,40 @@ def _app_running():
     return bool(pids)
 
 
+def cmd_probe(args):
+    """读回每块屏在系统里的真实值，并可选做一次写入往返测速。"""
+    import time
+
+    ctl = _controller()
+    found = disp.match(ctl.refresh_now(), args.query)
+    if not found:
+        print("没找到匹配的显示器")
+        return 1
+
+    print("系统里的真实值（读回来，不是记账值）：")
+    for d in found:
+        t0 = time.perf_counter()
+        value = d.read()
+        t1 = time.perf_counter()
+        print(f"  {d.name}: {round((value or 0) * 100):3d}%   "
+              f"读取 {(t1 - t0) * 1000:6.1f}ms   方式={d.backend_label}")
+
+    if args.toggle:
+        print("\n往返测试：写 40% → 读回 → 写 100% → 读回 → 还原")
+        for d in found:
+            original = ctl.store.value_for(d.key, d.value)
+            for target in (0.4, 1.0):
+                t0 = time.perf_counter()
+                ok = d.write(target)
+                t1 = time.perf_counter()
+                back = d.read()
+                print(f"  {d.name}: 写 {round(target * 100):3d}% ok={ok} "
+                      f"用时 {(t1 - t0) * 1000:6.1f}ms，读回 {round((back or 0) * 100):3d}%")
+                time.sleep(args.interval)
+            d.write(original)
+    return 0
+
+
 def cmd_restore(args):
     import time
 
@@ -328,6 +362,11 @@ def build_parser():
     p.add_argument("query", nargs="?", default="all")
 
     sub.add_parser("restore", help="把所有显示器恢复成记录值")
+
+    p = sub.add_parser("probe", help="读回系统里的真实亮度，可测写入耗时")
+    p.add_argument("query", nargs="?", default="all")
+    p.add_argument("--toggle", action="store_true", help="做一次 40%%/100%% 写入往返测试")
+    p.add_argument("--interval", type=float, default=1.0)
     sub.add_parser("wake", help="手动执行一遍唤醒恢复（调试用）")
 
     p = sub.add_parser("backend", help="指定控制方式")
@@ -359,6 +398,7 @@ def main(argv=None):
         "set": cmd_set,
         "nudge": cmd_nudge,
         "restore": cmd_restore,
+        "probe": cmd_probe,
         "wake": cmd_wake,
         "backend": cmd_backend,
         "watchdog": cmd_watchdog,
