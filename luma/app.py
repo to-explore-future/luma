@@ -19,6 +19,7 @@ from AppKit import (
     NSMakeRect,
     NSMakeSize,
     NSObject,
+    NSBezierPath,
     NSPopover,
     NSPopoverBehaviorTransient,
     NSSlider,
@@ -38,9 +39,10 @@ from . import login
 from .controller import Controller, log
 from .store import Store
 
-WIDTH = 380
-ROW_HEIGHT = 58
-FOOTER_HEIGHT = 66
+WIDTH = 400
+MARGIN = 34          # 滑块圆点在 0%/100% 时会画到轨道端点外，必须留出半径
+ROW_HEIGHT = 64
+FOOTER_HEIGHT = 70
 
 
 def _label(text, size=12, bold=False, secondary=False, right=False, width=120):
@@ -65,6 +67,93 @@ def _button(title, frame, target, action):
     btn.setTarget_(target)
     btn.setAction_(action)
     return btn
+
+
+class LumaSlider(NSView):
+    """自绘滑块。
+
+    macOS 26 的 NSSlider 会把圆点画到控件 bounds 之外再裁掉，
+    拖动到 0%/100% 时圆点总是缺一块；自己画就没有这个问题。
+    """
+
+    def initWithFrame_(self, frame):
+        self = objc.super(LumaSlider, self).initWithFrame_(frame)
+        if self is None:
+            return None
+        self._value = 0.0
+        self.key = ""
+        self.dragging = False
+        self.on_change = None
+        return self
+
+    def isFlipped(self):
+        return False
+
+    def value(self):
+        return self._value
+
+    def setValue_(self, value):
+        value = max(0.0, min(1.0, float(value)))
+        if abs(value - self._value) > 1e-6:
+            self._value = value
+            self.setNeedsDisplay_(True)
+
+    def acceptsFirstMouse_(self, event):
+        return True
+
+    def _geometry(self):
+        b = self.bounds()
+        radius = min(9.0, b.size.height / 2.0 - 1.0)
+        return b.size.width, b.size.height, radius
+
+    def drawRect_(self, rect):
+        width, height, radius = self._geometry()
+        x0, x1 = radius, width - radius
+        y = height / 2.0
+        track_h = 4.0
+
+        track = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(x0, y - track_h / 2.0, max(0.0, x1 - x0), track_h),
+            track_h / 2.0, track_h / 2.0)
+        NSColor.quaternaryLabelColor().setFill()
+        track.fill()
+
+        cx = x0 + self._value * (x1 - x0)
+        if cx > x0 + 0.5:
+            fill = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                NSMakeRect(x0, y - track_h / 2.0, cx - x0, track_h),
+                track_h / 2.0, track_h / 2.0)
+            NSColor.controlAccentColor().setFill()
+            fill.fill()
+
+        knob = NSBezierPath.bezierPathWithOvalInRect_(
+            NSMakeRect(cx - radius, y - radius, radius * 2.0, radius * 2.0))
+        NSColor.whiteColor().setFill()
+        knob.fill()
+        NSColor.blackColor().colorWithAlphaComponent_(0.18).setStroke()
+        knob.setLineWidth_(0.5)
+        knob.stroke()
+
+    def mouseDown_(self, event):
+        self.dragging = True
+        self._updateFromEvent_(event)
+
+    def mouseDragged_(self, event):
+        self._updateFromEvent_(event)
+
+    def mouseUp_(self, event):
+        self.dragging = False
+
+    def _updateFromEvent_(self, event):
+        point = self.convertPoint_fromView_(event.locationInWindow(), None)
+        width, _height, radius = self._geometry()
+        span = width - radius * 2.0
+        if span <= 0:
+            return
+        value = max(0.0, min(1.0, (point.x - radius) / span))
+        self.setValue_(value)
+        if self.on_change is not None:
+            self.on_change(self.key, value)
 
 
 class AppDelegate(NSObject):
@@ -333,47 +422,45 @@ class AppDelegate(NSObject):
 
         self.rows = {}
         if not displays:
-            empty = _label("没有检测到显示器", 12, secondary=True, width=WIDTH - 32)
-            empty.setFrame_(NSMakeRect(16, height - 44, WIDTH - 32, 16))
+            empty = _label("没有检测到显示器", 12, secondary=True, width=WIDTH - 2 * MARGIN)
+            empty.setFrame_(NSMakeRect(MARGIN, height - 44, WIDTH - 2 * MARGIN, 16))
             view.addSubview_(empty)
 
         for i, d in enumerate(displays):
             row_top = height - 16 - (i + 1) * ROW_HEIGHT
-            name = _label(d.name, 12, width=WIDTH - 120)
-            name.setFrame_(NSMakeRect(16, row_top + 34, WIDTH - 120, 16))
+            name = _label(d.name, 12, width=WIDTH - 160)
+            name.setFrame_(NSMakeRect(MARGIN, row_top + 40, WIDTH - 160, 16))
             name.setToolTip_(f"控制方式：{d.backend_label}")
 
             pct = _label(f"{round(d.value * 100)}%", 12, right=True, width=80)
-            pct.setFrame_(NSMakeRect(WIDTH - 96, row_top + 34, 80, 16))
+            pct.setFrame_(NSMakeRect(WIDTH - MARGIN - 80, row_top + 40, 80, 16))
 
-            slider = NSSlider.alloc().initWithFrame_(NSMakeRect(16, row_top + 8, WIDTH - 32, 20))
-            slider.setMinValue_(0.0)
-            slider.setMaxValue_(1.0)
-            slider.setDoubleValue_(d.value)
-            slider.setContinuous_(True)
-            slider.setTarget_(self)
-            slider.setAction_("sliderChanged:")
-            slider.setIdentifier_(d.key)
+            slider = LumaSlider.alloc().initWithFrame_(
+                NSMakeRect(MARGIN, row_top + 6, WIDTH - 2 * MARGIN, 30))
+            slider.setValue_(d.value)
+            slider.key = d.key
+            slider.on_change = self._slider_moved
 
             view.addSubview_(name)
             view.addSubview_(pct)
             view.addSubview_(slider)
             self.rows[d.key] = (slider, pct)
 
-        hint = _label(self._hint_text(displays), 10, secondary=True, width=WIDTH - 32)
-        hint.setFrame_(NSMakeRect(16, 42, WIDTH - 32, 14))
+        hint = _label(self._hint_text(displays), 10, secondary=True, width=WIDTH - 2 * MARGIN)
+        hint.setFrame_(NSMakeRect(MARGIN, 46, WIDTH - 2 * MARGIN, 14))
         view.addSubview_(hint)
 
         force_sw = self.store.settings.get("force_backend") == "gamma"
         self.software_btn = _button(
-            "调光:软件" if force_sw else "调光:自动", NSMakeRect(16, 10, 104, 26),
+            "调光:软件" if force_sw else "调光:自动", NSMakeRect(MARGIN, 12, 104, 26),
             self, "toggleSoftware:",
         )
         self.login_btn = _button(
-            "自启:开" if login.login_enabled() else "自启:关", NSMakeRect(124, 10, 84, 26),
+            "自启:开" if login.login_enabled() else "自启:关",
+            NSMakeRect(MARGIN + 108, 12, 84, 26),
             self, "toggleLogin:",
         )
-        quit_btn = _button("退出", NSMakeRect(WIDTH - 88, 10, 72, 26), self, "quit:")
+        quit_btn = _button("退出", NSMakeRect(WIDTH - MARGIN - 72, 12, 72, 26), self, "quit:")
         for btn in (self.software_btn, self.login_btn, quit_btn):
             view.addSubview_(btn)
 
@@ -408,18 +495,12 @@ class AppDelegate(NSObject):
             if now - self._slider_touch.get(d.key, 0.0) < 1.5:
                 continue
             slider, pct = row
-            try:
-                dragging = bool(slider.cell().isHighlighted())
-            except Exception:
-                dragging = False
-            if not dragging:
-                slider.setDoubleValue_(d.value)
+            if not getattr(slider, "dragging", False):
+                slider.setValue_(d.value)
             pct.setStringValue_(f"{round(d.value * 100)}%")
 
     # ---- 动作 ---------------------------------------------------------------
-    def sliderChanged_(self, sender):
-        key = sender.identifier()
-        value = sender.doubleValue()
+    def _slider_moved(self, key, value):
         self._slider_touch[key] = time.time()
         row = self.rows.get(key)
         if row:
