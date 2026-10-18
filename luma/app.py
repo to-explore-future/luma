@@ -35,7 +35,7 @@ from AppKit import (
     NSWorkspace,
 )
 
-from . import login
+from . import MIN_LEVEL, login
 from .controller import Controller, log
 from .store import Store
 
@@ -94,7 +94,7 @@ class LumaSlider(NSView):
         return self._value
 
     def setValue_(self, value):
-        value = max(0.0, min(1.0, float(value)))
+        value = max(MIN_LEVEL, min(1.0, float(value)))
         if abs(value - self._value) > 1e-6:
             self._value = value
             self.setNeedsDisplay_(True)
@@ -157,7 +157,7 @@ class LumaSlider(NSView):
         span = width - radius * 2.0
         if span <= 0:
             return
-        value = max(0.0, min(1.0, (point.x - radius) / span))
+        value = max(MIN_LEVEL, min(1.0, (point.x - radius) / span))
         self.setValue_(value)
         # 拖动过程中节流到 20Hz：这块老屏每次变化都要缓一下，
         # 写太密反而更卡顿；松手时会补一次终值。

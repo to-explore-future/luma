@@ -4,7 +4,7 @@ import platform
 import subprocess
 import sys
 
-from . import cg, displays as disp, login
+from . import MIN_LEVEL, cg, displays as disp, login
 from .controller import Controller, log
 from .store import LOG_PATH, STATE_PATH, Store
 
@@ -68,7 +68,9 @@ def cmd_set(args):
     if not found:
         print("没找到匹配的显示器")
         return 1
-    value = max(0.0, min(1.0, args.value / 100.0))
+    value = max(MIN_LEVEL, min(1.0, args.value / 100.0))
+    if args.value / 100.0 < MIN_LEVEL:
+        print(f"（低于下限，按 {round(MIN_LEVEL * 100)}% 处理，避免屏幕全黑）")
     return _apply(ctl, found, {d.key: value for d in found})
 
 

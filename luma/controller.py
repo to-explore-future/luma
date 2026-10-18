@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime
 
-from . import cg, displays as disp
+from . import MIN_LEVEL, cg, displays as disp
 from .store import LOG_PATH, STATE_PATH, Store
 
 MAX_LOG_BYTES = 256 * 1024
@@ -135,6 +135,7 @@ class Controller:
 
     # ---- 应用亮度 -----------------------------------------------------------
     def set_value(self, key, value, persist=True):
+        value = max(MIN_LEVEL, min(1.0, float(value)))
         self._last_user_action = time.time()
         self._submit("set", key, float(value), persist)
 
@@ -146,6 +147,7 @@ class Controller:
         return None
 
     def _do_set(self, key, value, persist):
+        value = max(MIN_LEVEL, min(1.0, float(value)))
         log(f"应用 {key} = {value:.3f}")
         d = self._find(key)
         if d is None:
@@ -179,6 +181,7 @@ class Controller:
             stored = self.store.value_for(d.key)
             if stored is None:
                 continue
+            stored = max(MIN_LEVEL, min(1.0, stored))
             if d.asleep or not cg.is_active(d.display_id):
                 all_ok = False
                 continue
@@ -261,6 +264,7 @@ class Controller:
             stored = self.store.value_for(d.key)
             if stored is None:
                 continue
+            stored = max(MIN_LEVEL, min(1.0, stored))
             current = d.read()
             if current is not None and abs(current - stored) > 0.08:
                 log(f"自检发现 {d.name} 被改成 {current:.2f}，应为 {stored:.2f}，写回")
