@@ -16,6 +16,7 @@ from AppKit import (
     NSColor,
     NSFont,
     NSImage,
+    NSMakePoint,
     NSMakeRect,
     NSMakeSize,
     NSObject,
@@ -182,6 +183,8 @@ class AppDelegate(NSObject):
         self.with_status_item = True
         self._slider_touch = {}
         self._nudge_windows = {}
+        self._nudge_tick = 0
+        self._last_nudged = {}
         return self
 
     # ---- 启动 ---------------------------------------------------------------
@@ -491,7 +494,18 @@ class AppDelegate(NSObject):
             return True
         return self.window is not None and self.window.isVisible()
 
+    def _nudge_changed(self, displays):
+        for d in displays:
+            if d.backend != "gamma":
+                continue
+            last = self._last_nudged.get(d.key)
+            if last is None or abs(last - d.value) > 0.002:
+                self._last_nudged[d.key] = d.value
+                self._nudge_display(d.display_id)
+
     def sync_ui(self, displays):
+        # 不管界面上有没有窗口，软件调光的屏变化后都要推一帧
+        self._nudge_changed(displays)
         if not self._surface_visible():
             return
         current_keys = {d.key for d in displays}
@@ -510,6 +524,7 @@ class AppDelegate(NSObject):
             if not getattr(slider, "dragging", False):
                 slider.setValue_(d.value)
             pct.setStringValue_(f"{round(d.value * 100)}%")
+
 
     # ---- 动作 ---------------------------------------------------------------
     def _nudge_display(self, display_id):
@@ -530,20 +545,30 @@ class AppDelegate(NSObject):
                     break
             if target is None:
                 return
+            rect = target.frame()
             win = self._nudge_windows.get(display_id)
             if win is None:
-                rect = target.frame()
                 win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-                    NSMakeRect(rect.origin.x + rect.size.width - 2, rect.origin.y + 2, 2, 2),
+                    NSMakeRect(rect.origin.x + rect.size.width - 4,
+                               rect.origin.y + rect.size.height - 4, 2, 2),
                     NSWindowStyleMaskBorderless, NSBackingStoreBuffered, False)
-                win.setOpaque_(False)
-                win.setAlphaValue_(0.0)
+                # 必须是真像素：全透明窗口会被 WindowServer 优化掉，不产生帧
+                win.setOpaque_(True)
+                win.setBackgroundColor_(NSColor.blackColor())
                 win.setIgnoresMouseEvents_(True)
                 win.setLevel_(3)
                 win.setReleasedWhenClosed_(False)
+                win.setHasShadow_(False)
                 self._nudge_windows[display_id] = win
+                log(f"建立重绘探针：屏幕={target.localizedName()} frame={rect}")
+            # 常驻但几乎不可见：alpha 0.02、2x2 像素。每次抖动 1 像素产生一帧更新。
+            jitter = 4 if (self._nudge_tick % 2 == 0) else 5
+            win.setFrameOrigin_(NSMakePoint(
+                rect.origin.x + rect.size.width - jitter,
+                rect.origin.y + rect.size.height - jitter))
+            self._nudge_tick += 1
             win.orderFront_(None)
-            win.orderOut_(None)
+            win.display()
         except Exception as exc:
             log(f"重绘触发失败：{exc!r}")
 
