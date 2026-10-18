@@ -117,13 +117,16 @@ class Controller:
         with self._lock:
             self.displays = found
 
+        captured = False
         for d in found:
             stored = self.store.value_for(d.key)
             if stored is None:
                 # 第一次见到这块屏：把当前亮度记下来，先不动它。
                 self.store.remember(d, d.value, d.backend)
+                captured = True
                 log(f"新显示器 {d.name} key={d.key} backend={d.backend} 记录当前亮度 {d.value:.2f}")
-        self._schedule_save()
+        if captured:
+            self._schedule_save()
 
         if apply_stored:
             self._apply_stored(found)
@@ -143,16 +146,20 @@ class Controller:
         return None
 
     def _do_set(self, key, value, persist):
+        log(f"应用 {key} = {value:.3f}")
         d = self._find(key)
         if d is None:
             # 可能是刚插上的屏，重新枚举一次再找
             self._do_refresh()
             d = self._find(key)
             if d is None:
+                log(f"找不到显示器 {key}（当前有 {[x.key for x in self.displays]}）")
                 return
-        if d.asleep:
+        if d.asleep and not cg.is_active(d.display_id):
+            log(f"跳过 {d.name}：显示器处于睡眠")
             return
         ok = d.write(value)
+        log(f"写入 {d.name} = {value:.3f} ok={ok} backend={d.backend}")
         if not ok and d.backend == disp.NATIVE:
             # 系统说能改但实际没生效，就地退回软件调光，保证滑块有效。
             log(f"{d.name} 原生亮度写入无效，改用软件调光")
@@ -176,6 +183,7 @@ class Controller:
                 all_ok = False
                 continue
             current = d.read()
+            log(f"恢复检查 {d.name}: 当前={current} 目标={stored}")
             if current is not None and abs(current - stored) < 0.01:
                 d.value = stored
                 continue

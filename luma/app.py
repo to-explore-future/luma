@@ -329,8 +329,8 @@ class AppDelegate(NSObject):
         )
 
     def onExternalChange_(self, notification):
-        log("收到命令行变更通知，重新应用")
         self.store.load()
+        log(f"收到命令行变更通知，重新应用（AOC={self.store.value_for('05e3279052190')}）")
         self.controller.refresh(apply_stored=True)
 
     def pollTick_(self, timer):
@@ -501,6 +501,7 @@ class AppDelegate(NSObject):
 
     # ---- 动作 ---------------------------------------------------------------
     def _slider_moved(self, key, value):
+        log(f"拖动 {key} -> {value:.3f}")
         self._slider_touch[key] = time.time()
         row = self.rows.get(key)
         if row:
