@@ -181,6 +181,7 @@ class AppDelegate(NSObject):
         self.show_on_launch = True
         self.with_status_item = True
         self._slider_touch = {}
+        self._nudge_windows = {}
         return self
 
     # ---- 启动 ---------------------------------------------------------------
@@ -511,6 +512,46 @@ class AppDelegate(NSObject):
             pct.setStringValue_(f"{round(d.value * 100)}%")
 
     # ---- 动作 ---------------------------------------------------------------
+    def _nudge_display(self, display_id):
+        """在那块屏上制造一次极小重绘。
+
+        实测：gamma 表虽然已经写进系统（读回立即是新值），但如果那块屏画面完全静止，
+        WindowServer 不会把新表推上去，屏幕上要等到别的窗口重绘才一起变。
+        这里用一个 2x2 的透明窗口闪一下，逼它合成。
+        """
+        try:
+            from AppKit import NSScreen, NSWindowStyleMaskBorderless
+
+            target = None
+            for screen in NSScreen.screens():
+                num = screen.deviceDescription().get("NSScreenNumber")
+                if num is not None and int(num) == int(display_id):
+                    target = screen
+                    break
+            if target is None:
+                return
+            win = self._nudge_windows.get(display_id)
+            if win is None:
+                rect = target.frame()
+                win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                    NSMakeRect(rect.origin.x + rect.size.width - 2, rect.origin.y + 2, 2, 2),
+                    NSWindowStyleMaskBorderless, NSBackingStoreBuffered, False)
+                win.setOpaque_(False)
+                win.setAlphaValue_(0.0)
+                win.setIgnoresMouseEvents_(True)
+                win.setLevel_(3)
+                win.setReleasedWhenClosed_(False)
+                self._nudge_windows[display_id] = win
+            win.orderFront_(None)
+            win.orderOut_(None)
+        except Exception as exc:
+            log(f"重绘触发失败：{exc!r}")
+
+    def _nudge_for(self, key):
+        d = next((x for x in self.controller.displays if x.key == key), None)
+        if d is not None and d.backend == "gamma":
+            self._nudge_display(d.display_id)
+
     def _slider_moved(self, key, value):
         log(f"拖动 {key} -> {value:.3f}")
         self._slider_touch[key] = time.time()
@@ -518,6 +559,7 @@ class AppDelegate(NSObject):
         if row:
             row[1].setStringValue_(f"{round(value * 100)}%")
         self.controller.set_value(key, value)
+        self._nudge_for(key)
 
     def toggleSoftware_(self, sender):
         current = self.store.settings.get("force_backend", "auto")
