@@ -84,6 +84,7 @@ class LumaSlider(NSView):
         self.key = ""
         self.dragging = False
         self.on_change = None
+        self._last_emit = 0.0
         return self
 
     def isFlipped(self):
@@ -143,6 +144,12 @@ class LumaSlider(NSView):
 
     def mouseUp_(self, event):
         self.dragging = False
+        # 松手一定写一次终值，保证最终亮度准确
+        self._emit()
+
+    def _emit(self):
+        if self.on_change is not None:
+            self.on_change(self.key, self._value)
 
     def _updateFromEvent_(self, event):
         point = self.convertPoint_fromView_(event.locationInWindow(), None)
@@ -152,8 +159,12 @@ class LumaSlider(NSView):
             return
         value = max(0.0, min(1.0, (point.x - radius) / span))
         self.setValue_(value)
-        if self.on_change is not None:
-            self.on_change(self.key, value)
+        # 拖动过程中节流到 20Hz：这块老屏每次变化都要缓一下，
+        # 写太密反而更卡顿；松手时会补一次终值。
+        now = time.time()
+        if now - self._last_emit >= 0.05:
+            self._last_emit = now
+            self._emit()
 
 
 class AppDelegate(NSObject):
