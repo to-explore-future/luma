@@ -19,11 +19,14 @@ from AppKit import (
     NSMakeRect,
     NSMakeSize,
     NSObject,
+    NSPopover,
+    NSPopoverBehaviorTransient,
     NSSlider,
     NSTextField,
     NSTimer,
     NSVariableStatusItemLength,
     NSView,
+    NSViewController,
     NSWindow,
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskMiniaturizable,
@@ -73,6 +76,7 @@ class AppDelegate(NSObject):
         self.store = Store()
         self.controller = Controller(self.store, on_change=self.sync_ui)
         self.window = None
+        self.popover = None
         self.rows = {}
         self.show_on_launch = True
         self.with_status_item = True
@@ -141,7 +145,7 @@ class AppDelegate(NSObject):
             log("状态栏图标：SF Symbol 不可用，退回文字 ☀")
         button.setToolTip_("Luma 屏幕亮度")
         button.setTarget_(self)
-        button.setAction_("showWindow:")
+        button.setAction_("showPanel:")
         self.status_item = item
         return item
 
@@ -249,6 +253,9 @@ class AppDelegate(NSObject):
     def showWindow_(self, sender):
         if self.window is None:
             return
+        if self.popover is not None and self.popover.isShown():
+            self.popover.performClose_(sender)
+        self.rebuild_content()
         app = NSApplication.sharedApplication()
         try:
             app.activate()  # macOS 14+
@@ -261,14 +268,65 @@ class AppDelegate(NSObject):
         self.window.makeKeyAndOrderFront_(None)
         log(f"显示窗口（可见={self.window.isVisible()}）")
 
+    def _ensure_popover(self):
+        if self.popover is not None:
+            return self.popover
+        popover = NSPopover.alloc().init()
+        popover.setBehavior_(NSPopoverBehaviorTransient)
+        vc = NSViewController.alloc().init()
+        vc.setView_(NSView.alloc().initWithFrame_(NSMakeRect(0, 0, WIDTH, 240)))
+        popover.setContentViewController_(vc)
+        self.popover = popover
+        return popover
+
+    def showPanel_(self, sender):
+        """点菜单栏图标：在图标正下方弹出面板（在哪块屏点的就弹在哪块屏）。"""
+        if self.status_item is None or self.status_item.button() is None:
+            self.showWindow_(sender)
+            return
+        popover = self._ensure_popover()
+        if popover.isShown():
+            popover.performClose_(sender)
+            return
+        view, height = self._build_view()
+        popover.contentViewController().setView_(view)
+        popover.setContentSize_(NSMakeSize(WIDTH, height))
+        button = self.status_item.button()
+        app = NSApplication.sharedApplication()
+        try:
+            app.activateIgnoringOtherApps_(True)
+        except Exception:
+            pass
+        popover.showRelativeToRect_ofView_preferredEdge_(button.bounds(), button, 1)
+        screen_name = "?"
+        try:
+            window = button.window()
+            if window is not None and window.screen() is not None:
+                screen_name = window.screen().localizedName()
+        except Exception:
+            pass
+        log(f"弹出面板（屏幕={screen_name}）")
+
     def applicationShouldHandleReopen_hasVisibleWindows_(self, app, has_visible):
         self.showWindow_(None)
         return True
 
     # ---- 构建界面 -----------------------------------------------------------
     def rebuild_content(self):
-        if self.window is None:
+        view, height = self._build_view()
+        if self.popover is not None and self.popover.isShown():
+            self.popover.contentViewController().setView_(view)
+            self.popover.setContentSize_(NSMakeSize(WIDTH, height))
+            surface = "面板"
+        elif self.window is not None:
+            self.window.setContentView_(view)
+            self.window.setContentSize_(NSMakeSize(WIDTH, height))
+            surface = "窗口"
+        else:
             return
+        log(f"界面重建：{len(self.controller.displays)} 块屏 → {surface}")
+
+    def _build_view(self):
         displays = self.controller.displays
         height = 16 + max(1, len(displays)) * ROW_HEIGHT + FOOTER_HEIGHT
         view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, WIDTH, height))
@@ -319,9 +377,7 @@ class AppDelegate(NSObject):
         for btn in (self.software_btn, self.login_btn, quit_btn):
             view.addSubview_(btn)
 
-        self.window.setContentView_(view)
-        self.window.setContentSize_(NSMakeSize(WIDTH, height))
-        log(f"界面重建：{len(displays)} 块屏，窗口可见={self.window.isVisible()}")
+        return view, height
 
     def _hint_text(self, displays):
         if _monitorcontrol_running():
@@ -331,15 +387,17 @@ class AppDelegate(NSObject):
             return "唤醒后自动恢复 · 软件调光：" + "、".join(gamma)
         return "唤醒后自动恢复亮度"
 
+    def _surface_visible(self):
+        if self.popover is not None and self.popover.isShown():
+            return True
+        return self.window is not None and self.window.isVisible()
+
     def sync_ui(self, displays):
-        if self.window is None:
+        if not self._surface_visible():
             return
         current_keys = {d.key for d in displays}
         if current_keys != set(self.rows.keys()):
-            if self.window.isVisible():
-                self.rebuild_content()
-            else:
-                self.rows = {}
+            self.rebuild_content()
             return
         now = time.time()
         for d in displays:
