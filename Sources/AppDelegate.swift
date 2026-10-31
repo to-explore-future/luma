@@ -30,6 +30,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--test-lang=") }) {
             L10n.code = String(arg.split(separator: "=").last ?? "zh-Hans")
         }
+        if CommandLine.arguments.contains("--test-wake") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                guard let d = Displays.enumerate().first(where: { $0.backend == .gamma }) else {
+                    Log.write("测试唤醒：没有 gamma 屏"); return
+                }
+                Store.shared.setLevel(0.6, for: d.key)
+                Brightness.write(d.id, backend: .gamma, 1.0)
+                Nudge.shared.kick(d.id)
+                Log.write("测试唤醒：\(d.name) 先重置到 100%")
+                NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+                for i in 1...8 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.5) {
+                        let now = Brightness.read(d.id, backend: .gamma) ?? -1
+                        Log.write("测试唤醒 +\(Double(i) * 0.5)s: \(Int(now * 100))%")
+                    }
+                }
+            }
+        }
         if CommandLine.arguments.contains("--test-donate") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.showDonate() }
         }

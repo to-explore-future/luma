@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP="$ROOT/Luma.app"
 DIST="$ROOT/dist"
-DMG="$DIST/Luma-2.1.1.dmg"
+DMG="$DIST/Luma-2.1.2.dmg"
 "$ROOT/build.sh"
 mkdir -p "$DIST"; rm -rf "$DIST/.stage" "$DMG"; mkdir -p "$DIST/.stage"
 cp -R "$APP" "$DIST/.stage/Luma.app"
