@@ -1,8 +1,7 @@
-# 构建环境与产物，不进仓库
-.build-venv/
+.DS_Store
 build/
 dist/
-dmg-stage/
-__pycache__/
-*.pyc
-.DS_Store
+*.app/
+*.dmg
+*.zip
+.build-venv/

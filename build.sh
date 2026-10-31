@@ -1,37 +1,26 @@
 #!/bin/bash
-# 用 py2app 打独立 App：Python 运行时、PyObjC、luma 全部塞进 Luma.app。
-# 产物：dist/Luma.app（Dock 里显示 Luma，不显示 Python）
 set -euo pipefail
-cd "$(dirname "$0")"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+APP="$ROOT/Luma.app"
+RES="$APP/Contents/Resources"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$RES"
 
-BUILD_VENV=".build-venv"
+swiftc -O \
+  -target arm64-apple-macos12.0 \
+  -framework Cocoa \
+  "$ROOT"/Sources/*.swift \
+  -o "$APP/Contents/MacOS/Luma"
 
-if [ ! -x "$BUILD_VENV/bin/python" ]; then
-  BASE=""
-  for cand in /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3 \
-              /usr/local/bin/python3; do
-    if [ -x "$cand" ]; then BASE="$cand"; break; fi
-  done
-  if [ -z "$BASE" ]; then
-    echo "没找到 python3，无法构建"; exit 1
-  fi
-  echo "创建构建环境（只用于打包，不会装进 App）…"
-  "$BASE" -m venv "$BUILD_VENV"
-  "$BUILD_VENV/bin/python" -m pip install --quiet --disable-pip-version-check \
-    pyobjc-framework-Cocoa py2app setuptools
-fi
+cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
+[ -f "$ROOT/assets/Luma.icns" ] && cp "$ROOT/assets/Luma.icns" "$RES/Luma.icns"
+[ -f "$ROOT/assets/DonateQR.png" ] && cp "$ROOT/assets/DonateQR.png" "$RES/DonateQR.png"
+for lproj in "$ROOT"/Resources/*.lproj; do
+  [ -d "$lproj" ] && cp -R "$lproj" "$RES/"
+done
 
-rm -rf build dist
-"$BUILD_VENV/bin/python" setup.py py2app >/tmp/luma-py2app.log 2>&1 || {
-  echo "构建失败，日志见 /tmp/luma-py2app.log"
-  tail -30 /tmp/luma-py2app.log
-  exit 1
-}
+IDENTITY="${CODESIGN_IDENTITY:-Wangfou Dev Signing}"
+codesign --force --sign "$IDENTITY" --timestamp=none "$APP" 2>/dev/null \
+  || codesign --force --sign - --timestamp=none "$APP"
 
-if [ ! -d dist/Luma.app ]; then
-  echo "构建失败：没有生成 dist/Luma.app"
-  exit 1
-fi
-
-codesign --force --deep --sign - dist/Luma.app >/dev/null 2>&1 || true
-echo "已生成 dist/Luma.app（$(du -sh dist/Luma.app | cut -f1)）"
+echo "Built: $APP"
