@@ -6,6 +6,8 @@
 
 <img src="assets/Luma.iconset/icon_256x256@2x.png" width="160" alt="Luma">
 
+<img src="docs/panel.png" width="560" alt="Luma 面板">
+
 ## 功能
 
 - 每块屏幕一条独立滑块，互不影响

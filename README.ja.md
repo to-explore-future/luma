@@ -6,6 +6,8 @@
 
 <img src="assets/Luma.iconset/icon_256x256@2x.png" width="160" alt="Luma">
 
+<img src="docs/panel.png" width="560" alt="Luma 面板">
+
 ## 機能
 
 - ディスプレイごとに独立したスライダー
